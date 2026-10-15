@@ -1,0 +1,501 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Transport Agent DLP Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: control strip, full-width pipeline stage, then headers + trace, then analysis DB + Enforce incidents side by side (stack on phones). Carbon-flavored. */
+:root{
+  --bg:#f2f4f8; --surface:#ffffff; --fg:#161616; --muted:#5d646a; --line:#c1c7cd;
+  --accent:#0f62fe; --wxo:#8a3ffc; --ok:#198038; --bad:#da1e28; --warn:#8e6a00; --np:#6f6f6f;
+  --node:#ffffff; --nodeLine:#a2a9b0; --track:#dde1e6; --hl:rgba(138,63,252,.10);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121619; --surface:#1e2226; --fg:#f2f4f8; --muted:#a2a9b0; --line:#343a3f;
+  --accent:#78a9ff; --wxo:#a56eff; --ok:#42be65; --bad:#fa4d56; --warn:#f1c21b; --np:#a8a8a8;
+  --node:#21272a; --nodeLine:#4d5358; --track:#343a3f; --hl:rgba(165,110,255,.16); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121619; --surface:#1e2226; --fg:#f2f4f8; --muted:#a2a9b0; --line:#343a3f;
+  --accent:#78a9ff; --wxo:#a56eff; --ok:#42be65; --bad:#fa4d56; --warn:#f1c21b; --np:#a8a8a8;
+  --node:#21272a; --nodeLine:#4d5358; --track:#343a3f; --hl:rgba(165,110,255,.16); color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-sans);font-size:15px;line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding-inline:16px;padding-block:24px 40px;display:grid;gap:20px}
+header h1{font-size:1.6rem;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+header p{margin:.25rem 0 0;color:var(--muted);max-width:70ch}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.seg{display:flex;flex-wrap:wrap;border:1px solid var(--line);background:var(--surface)}
+.seg button{font:inherit;font-size:.85rem;padding:8px 14px;border:0;background:transparent;color:var(--muted);cursor:pointer;border-right:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.seg button:last-child{border-right:0}
+.seg button i{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.actions{display:flex;gap:8px}
+.btn{font:inherit;font-size:.85rem;padding:8px 16px;border:1px solid var(--accent);background:var(--accent);color:var(--bg);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stage{background:var(--surface);border:1px solid var(--line);overflow-x:auto}
+.stage svg{display:block;width:100%;min-width:820px;height:auto}
+.progress{height:3px;background:var(--track)}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s linear}
+svg text{font-family:var(--font-sans);fill:var(--fg)}
+svg .sub{font-family:var(--font-mono);font-size:10.5px;fill:var(--muted)}
+svg .lbl{font-size:13px;font-weight:600}
+svg .zone{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;fill:var(--muted)}
+.track{stroke:var(--track);stroke-width:2;fill:none}
+.box{fill:none;stroke:var(--nodeLine);stroke-width:1;stroke-dasharray:6 4}
+.track.dash{stroke-dasharray:4 5}
+.track.fb{stroke:var(--wxo);opacity:.6;stroke-width:1.6}
+.fbh{fill:none;stroke:var(--wxo);stroke-width:1.6;opacity:.8}
+.track.match{stroke:var(--wxo);opacity:.45;stroke-dasharray:2 4}
+.node rect{fill:var(--node);stroke:var(--nodeLine);stroke-width:1.2;transition:stroke .3s}
+.node.on rect{stroke:var(--accent);stroke-width:2}
+.node .bar{fill:var(--nodeLine)}
+.node.on .bar{fill:var(--accent)}
+.node.wxo rect,.node.db rect{stroke:var(--wxo)}
+.node.wxo .bar,.node.db .bar{fill:var(--wxo)}
+.ring{fill:none;stroke:var(--accent);stroke-width:2;opacity:0}
+.pk{stroke:var(--surface);stroke-width:2}
+.env rect.body{fill:var(--surface);stroke:var(--env,var(--fg));stroke-width:2;transition:stroke .3s}
+.env path{fill:none;stroke:var(--env,var(--fg));stroke-width:2;transition:stroke .3s}
+.env .tag{fill:var(--env,var(--fg));transition:fill .3s}
+.panels{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:20px}
+.panels.even{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:820px){.panels,.panels.even{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);padding:16px 18px;min-width:0}
+.panel h2{font-size:.72rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.panel h2 span{text-transform:none;letter-spacing:0;font-family:var(--font-mono)}
+dl.hdrs{margin:0;font-family:var(--font-mono);font-size:.8rem;display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px}
+dl.hdrs dt{color:var(--muted)}
+dl.hdrs dd{margin:0;overflow-wrap:anywhere}
+dl.hdrs .new{color:var(--wxo);font-weight:500}
+dl.hdrs .pending{color:var(--muted);opacity:.6}
+.chip{display:inline-block;padding:0 7px;font-family:var(--font-mono);font-size:.72rem;border:1px solid var(--c);color:var(--c);white-space:nowrap}
+ol.log{list-style:none;margin:0;padding:0;font-size:.85rem;display:grid;gap:8px;max-height:320px;overflow-y:auto}
+ol.log li{display:grid;grid-template-columns:5.6rem minmax(0,1fr);gap:10px;animation:fade .3s ease-out}
+ol.log time{font-family:var(--font-mono);font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
+ol.log b{font-weight:600}
+ol.log .empty{color:var(--muted)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.8rem;min-width:420px}
+th{font-weight:500;text-align:left;color:var(--muted);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid var(--line);font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.new td{animation:fade .4s ease-out}
+tr.hl td{background:var(--hl)}
+tr.hl td:first-child{box-shadow:inset 3px 0 0 var(--wxo)}
+td .mid{color:var(--fg)}
+tr.hl td .mid{color:var(--wxo);font-weight:500}
+td.dim{color:var(--muted)}
+.note{margin:10px 0 0;font-size:.8rem;color:var(--muted)}
+.rv{transition:box-shadow .3s}
+.rv.waiting{box-shadow:0 0 0 2px var(--warn)}
+.rv-empty{color:var(--muted);margin:0;font-size:.9rem}
+.rv-grid{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,7fr);gap:24px}
+@media (max-width:820px){.rv-grid{grid-template-columns:1fr}}
+.rv-title{font-size:1.05rem;font-weight:600;margin:0 0 10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ai{border-left:3px solid var(--wxo);padding-left:16px;display:grid;gap:12px;min-width:0}
+.ai h3{margin:0;font-size:.72rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--wxo)}
+.ai p{margin:0;max-width:72ch;font-size:.9rem}
+.ai .k{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
+.ents{display:flex;flex-wrap:wrap;gap:6px}
+.sig{margin:0;padding-left:18px;font-size:.85rem}
+.rec{font-weight:500}
+.rv-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.btn.ok{background:var(--ok);border-color:var(--ok)}
+.btn.no{background:transparent;color:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.rv-status{font-size:.85rem;color:var(--muted)}
+.rv.waiting .rv-status{color:var(--warn);font-weight:500}
+@keyframes fade{from{opacity:.2;transform:translateY(3px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){ol.log li,tr.new td{animation:none}.progress i{transition:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>One email through the DLP pipeline, transport agent option</h1>
+    <p>A custom transport agent running inside Exchange pauses each outbound message and sends it to watsonx Orchestrate for scoring. There is no extra SMTP hop. The analysis is saved to the analysis DB in watsonx.data, the agent stamps <code>X-Watsonx-Classification</code> and releases the message, and SMG and Network Prevent for Email act on it. When Enforce opens an incident, it is matched back to the database row by Message-ID. Reviewers approve or reject in Enforce, SMG releases or deletes the held message, and the decision is written back to the analysis DB as a label that Orchestrate learns from. A timed-out email is retried from the back of the queue; after 3 tries it is stamped TIMEOUT and SDLP sends it to mandatory human review.</p>
+  </header>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Outcome">
+      <button id="sc-safe" data-sc="safe" aria-pressed="true" style="--c:var(--ok)"><i></i>Safe</button>
+      <button id="sc-quar" data-sc="quar" aria-pressed="false" style="--c:var(--bad)"><i></i>Quarantine</button>
+      <button id="sc-review" data-sc="review" aria-pressed="false" style="--c:var(--warn)"><i></i>Review</button>
+      <button id="sc-np" data-sc="np" aria-pressed="false" style="--c:var(--np)"><i></i>Timeout</button>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="pause">Pause</button>
+      <button class="btn" id="replay">Replay</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <svg viewBox="0 0 1080 360" role="img" aria-label="Pipeline: Outlook, Exchange with transport agent, watsonx Orchestrate, analysis DB in watsonx.data, SMG, Network Prevent for Email, Enforce, quarantine, reviewer, recipient">
+      <text class="zone" x="20" y="24">CITCO</text>
+      <rect class="box" x="138" y="134" width="278" height="104"/>
+      <text class="zone" x="148" y="150">EXCHANGE SERVER</text>
+      <!-- tracks -->
+      <path class="track" d="M70 190 H900"/>
+      <path class="track dash" d="M345 190 V72"/>
+      <path class="track dash" d="M435 72 H510"/>
+      <path class="track fb" d="M580 42 V17 H345 V36"/><path class="fbh" d="M340 30 L345 37 L350 30"/>
+      <text class="sub" x="462" y="12" text-anchor="middle">learning · reads labeled decisions</text>
+      <text class="sub" x="695" y="88" text-anchor="middle">← feedback</text>
+      <path class="track match" d="M650 72 H740"/>
+      <text class="sub" x="695" y="62" text-anchor="middle">Message-ID</text>
+      <path class="track dash" d="M650 190 V128 H815 V102"/>
+      <path class="track dash" d="M500 220 V280"/>
+      <path class="track dash" d="M556 310 H900 V220"/>
+      <path class="track dash" d="M790 102 V250 H500 V280"/>
+      <text class="sub" x="645" y="244" text-anchor="middle">Quarantine Connect · approve / reject</text>
+      <path class="track dash" d="M890 72 H955"/>
+
+      <g class="node" id="n-sender" transform="translate(70 190)"><rect x="-54" y="-30" width="108" height="60"/><rect class="bar" x="-54" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">Outlook</text><text class="sub" x="0" y="13" text-anchor="middle">sender</text></g>
+      <g class="node" id="n-exch" transform="translate(205 190)"><rect x="-54" y="-30" width="108" height="60"/><rect class="bar" x="-54" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">Exchange</text><text class="sub" x="0" y="13" text-anchor="middle">categorizer</text></g>
+      <g class="node" id="n-smart" transform="translate(345 190)"><rect x="-56" y="-30" width="112" height="60"/><rect class="bar" x="-56" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">Transport agent</text><text class="sub" x="0" y="13" text-anchor="middle">OnRoutedMessage</text></g>
+      <g class="node" id="n-smg" transform="translate(500 190)"><rect x="-54" y="-30" width="108" height="60"/><rect class="bar" x="-54" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">SMG</text><text class="sub" x="0" y="13" text-anchor="middle">msg gateway</text></g>
+      <g class="node" id="n-npe" transform="translate(650 190)"><rect x="-56" y="-30" width="112" height="60"/><rect class="bar" x="-56" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">SDLP NPE</text><text class="sub" x="0" y="13" text-anchor="middle">policy check</text></g>
+      <g class="node" id="n-out" transform="translate(900 190)"><rect x="-58" y="-30" width="116" height="60"/><rect class="bar" x="-58" y="-30" width="4" height="60"/><text class="lbl" id="out-lbl" x="0" y="-4" text-anchor="middle">Recipient</text><text class="sub" id="out-sub" x="0" y="13" text-anchor="middle">external</text></g>
+
+      <g class="node wxo" id="n-wxo" transform="translate(345 72)"><rect x="-90" y="-34" width="180" height="68"/><rect class="bar" x="-90" y="-34" width="4" height="68"/><text class="lbl" x="0" y="-10" text-anchor="middle">watsonx Orchestrate</text><text class="sub" x="0" y="7" text-anchor="middle">IBM SaaS · PII agent</text><text class="sub" id="wxo-score" x="0" y="23" text-anchor="middle">risk —</text></g>
+      <g class="node db" id="n-db" transform="translate(580 72)"><rect x="-70" y="-30" width="140" height="60"/><rect class="bar" x="-70" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">Analysis DB</text><text class="sub" id="db-sub" x="0" y="13" text-anchor="middle">watsonx.data</text></g>
+      <g class="node" id="n-enf" transform="translate(815 72)"><rect x="-75" y="-30" width="150" height="60"/><rect class="bar" x="-75" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">Enforce console</text><text class="sub" id="enf-sub" x="0" y="13" text-anchor="middle">incidents</text></g>
+
+      <g class="node" id="n-q" transform="translate(500 310)"><rect x="-56" y="-30" width="112" height="60"/><rect class="bar" x="-56" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">SMG quarantine</text><text class="sub" id="q-sub" x="0" y="13" text-anchor="middle">held mail</text></g>
+      <g class="node" id="n-rev" transform="translate(1010 72)"><rect x="-55" y="-30" width="110" height="60"/><rect class="bar" x="-55" y="-30" width="4" height="60"/><text class="lbl" x="0" y="-4" text-anchor="middle">Reviewer</text><text class="sub" id="rev-sub" x="0" y="13" text-anchor="middle">uses console</text></g>
+
+      <circle class="ring" id="ring" r="10"/>
+      <g id="pk"></g>
+      <g class="env" id="env" transform="translate(70 190)">
+        <rect class="body" x="-17" y="-12" width="34" height="24" rx="2"/>
+        <path d="M-17 -12 L0 2 L17 -12"/>
+        <rect class="tag" id="env-tag" x="9" y="6" width="12" height="12" rx="6" opacity="0"/>
+      </g>
+    </svg>
+    <div class="progress"><i id="prog"></i></div>
+  </div>
+
+  <section class="panel rv" id="rv" aria-live="polite">
+    <h2>Reviewer view <span>Enforce console · incident detail</span></h2>
+    <div id="rv-body"><p class="rv-empty">Waiting for an incident.</p></div>
+  </section>
+
+  <div class="panels">
+    <section class="panel">
+      <h2>Message headers</h2>
+      <dl class="hdrs" id="hdrs"></dl>
+    </section>
+    <section class="panel">
+      <h2>Trace</h2>
+      <ol class="log" id="log"></ol>
+    </section>
+  </div>
+
+  <div class="panels even">
+    <section class="panel">
+      <h2>Analysis DB <span>watsonx.data · citco_analysis</span></h2>
+      <div class="tbl"><table>
+        <thead><tr><th>message_id</th><th>verdict</th><th>risk</th><th>reason</th><th>incident</th><th>feedback</th></tr></thead>
+        <tbody id="db-rows"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <h2>Enforce console <span>Incidents · Network Prevent</span></h2>
+      <div class="tbl"><table>
+        <thead><tr><th>Incident</th><th>Message-ID</th><th>Policy</th><th>AI verdict</th><th>Status</th></tr></thead>
+        <tbody id="enf-rows"></tbody>
+      </table></div>
+      <p class="note">AI verdict and AI risk are custom attributes. They're filled in by looking up the incident's Message-ID in the analysis DB and writing back through the Enforce REST API.</p>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+const P={sender:[70,190],exch:[205,190],smart:[345,190],smg:[500,190],npe:[650,190],out:[900,190],
+  wxo:[345,72],db:[580,72],enf:[815,72],q:[500,310],rev:[1010,72],qr:[900,310],J:[650,128],K:[815,128],fa:[580,17],fb:[345,17],E0:[790,72],E1:[790,250],E2:[500,250]};
+const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $=id=>document.getElementById(id);
+const env=$('env'),ring=$('ring'),log=$('log'),hdrs=$('hdrs'),prog=$('prog'),pk=$('pk');
+const NS='http://www.w3.org/2000/svg';
+
+const SC={
+  safe:{subject:'Q3 NAV schedule – Fund 214',from:'a.mehta@citco.example',to:'audit@kpmg.example',att:'nav_q3.xlsx',
+    risk:0.06,cls:'SAFE',c:'--ok',why:'no PII entities; fund figures only',total:10},
+  quar:{subject:'Investor onboarding – KYC pack',from:'r.lopes@citco.example',to:'onboard@gmail.example',att:'kyc_scan.pdf',
+    risk:0.91,cls:'QUARANTINE',c:'--bad',why:'passport no. + 2 SSN patterns; free-mail recipient',total:22,
+    pol:'PII – External',sev:'High',
+    ai:{summary:'Onboarding email from Client Services to a personal Gmail address. The body asks the investor to confirm their details, and the attached kyc_scan.pdf (6 pages) is a scanned identity pack: a passport bio page, a utility bill, and a tax form showing two US Social Security numbers. The recipient domain is a free-mail provider and has no prior history with this sender. This looks like regulated investor PII leaving through an unapproved channel.',
+      ents:['Passport no. ×1','SSN ×2','Home address ×1','Date of birth ×1'],
+      att:'Scanned PDF. Page 1 passport bio page; page 3 utility bill; pages 5–6 IRS W-9 with SSN fields filled in.',
+      sig:['Free-mail recipient, first contact (+0.30)','Government ID in attachment (+0.35)','2 SSN patterns, checksum valid (+0.26)'],
+      rec:'Do not send. Ask the sender to share through the secure investor portal.'}},
+  review:{subject:'Updated wire instructions',from:'j.ng@citco.example',to:'ops@adminpartner.example',att:'wire_update.docx',
+    risk:0.57,cls:'REVIEW',c:'--warn',why:'1 IBAN; known counterparty domain',total:22,
+    pol:'Payment Data – Hold',sev:'Medium',
+    ai:{summary:'Fund Operations is sending updated beneficiary wire instructions for a Fund 214 redemption to Admin Partner Ltd. The attached wire_update.docx holds one IBAN ending 7731 and a beneficiary name that matches the counterparty master record. The recipient domain is a known counterparty with 14 messages in the last 90 days. No personal identifiers were found. Risk is raised because changes to wire instructions are a common fraud pattern and this IBAN differs from the one on file.',
+      ents:['IBAN ×1 (…7731)','Beneficiary name ×1','Fund ID ×1'],
+      att:'1-page Word document: header “Revised settlement instructions”, bank name, SWIFT/BIC, IBAN, beneficiary, effective date 20 Oct.',
+      sig:['Known counterparty domain (−0.20)','IBAN differs from master record (+0.45)','Wire-change wording in body (+0.32)'],
+      rec:'Release only after a call-back to the counterparty contact on file confirms the new IBAN.'}},
+  np:{subject:'Board pack draft v4',from:'k.obi@citco.example',to:'secretary@lawfirm.example',att:'board_pack.pdf (84 MB)',
+    risk:null,cls:'TIMEOUT',c:'--np',why:'Orchestrate timeout after 30 s',total:26,pol:'AI Timeout – Mandatory Review',sev:'Medium'}
+};
+const chip=(cls,c)=>`<span class="chip" style="--c:var(${c})">${cls}</span>`;
+const CMAP={SAFE:'--ok',QUARANTINE:'--bad',REVIEW:'--warn',RETRYING:'--np',TIMEOUT:'--np'};
+
+let dbRows=[
+  {id:'3e9b04c1',v:'QUARANTINE',risk:'0.88',reason:'2 SSN patterns',inc:'#48207',fb:'not sent · agreed'},
+  {id:'7a1c55d0',v:'SAFE',risk:'0.04',reason:'no PII',inc:'none'}];
+let enfRows=[{inc:'#48207',id:'3e9b04c1',pol:'PII – External',ai:'QUARANTINE · 0.88',st:'Quarantined'}];
+let incNo=48212, fbCount=128;
+
+function renderDB(){
+  $('db-rows').innerHTML=dbRows.slice(0,6).map(r=>`<tr class="${r.cls||''}"><td><span class="mid">&lt;${r.id}&gt;</span></td><td>${chip(r.v,CMAP[r.v])}</td><td>${r.risk}</td><td class="dim">${r.reason}</td><td class="${r.inc==='none'||r.inc==='pending'?'dim':''}">${r.inc}</td><td class="${r.fb?'':'dim'}">${r.fb||'—'}</td></tr>`).join('');
+}
+function renderEnf(){
+  $('enf-rows').innerHTML=enfRows.slice(0,6).map(r=>`<tr class="${r.cls||''}"><td>${r.inc}</td><td><span class="mid">&lt;${r.id}&gt;</span></td><td>${r.pol}</td><td class="${r.ai.startsWith('…')?'dim':''}">${r.ai}</td><td>${r.st}</td></tr>`).join('');
+}
+function clearHL(){dbRows.forEach(r=>r.cls='');enfRows.forEach(r=>r.cls='');}
+
+let sc='safe',paused=false,token=0,clock=0,headers=[],choiceRes=null;
+const rv=$('rv'),rvBody=$('rv-body');
+function rvEmpty(t){rv.classList.remove('waiting');rvBody.innerHTML=`<p class="rv-empty">${t}</p>`;}
+function rvShow(s,inc,mid){
+  const a=s.ai, rt=s.risk==null?'no score':s.risk.toFixed(2);
+  const aiHtml=a?`<div class="ai"><h3>AI summary · watsonx Orchestrate</h3>
+      <p>${a.summary}</p>
+      <div><span class="k">Detected entities</span><div class="ents">${a.ents.map(e=>chip(e,'--wxo')).join('')}</div></div>
+      <div><span class="k">Attachment summary</span><p>${a.att}</p></div>
+      <div><span class="k">Risk signals</span><ul class="sig">${a.sig.map(x=>`<li>${x}</li>`).join('')}</ul></div>
+      <div><span class="k">Recommendation</span><p class="rec">${a.rec}</p></div>
+    </div>`:`<div class="ai"><h3>AI summary · not available</h3>
+      <p>watsonx Orchestrate timed out on all 3 attempts, so this message was sent to mandatory human review without an AI analysis.</p>
+      <div><span class="k">What to check</span><ul class="sig"><li>Open ${s.att} and look for client, investor or fund data</li><li>Confirm the recipient domain is expected for this sender</li><li>Release only if nothing sensitive is going to an unapproved recipient</li></ul></div>
+    </div>`;
+  rvBody.innerHTML=`<div class="rv-grid">
+    <div><p class="rv-title">Incident ${inc} ${chip(s.cls+' · '+rt,s.c)}</p>
+      <dl class="hdrs">
+        <dt>Policy</dt><dd>${s.pol}</dd><dt>Severity</dt><dd>${s.sev}</dd>
+        <dt>Sender</dt><dd>${s.from}</dd><dt>Recipient</dt><dd>${s.to}</dd>
+        <dt>Subject</dt><dd>${s.subject}</dd><dt>Attachment</dt><dd>${s.att}</dd>
+        <dt>Message-ID</dt><dd class="new">&lt;${mid}@citco.example&gt; ✓ matched</dd>
+        <dt>Status</dt><dd id="rv-st">Held in SMG quarantine</dd>
+      </dl></div>
+    ${aiHtml}</div>
+    <div class="rv-actions">
+      <button class="btn ok" id="rv-rel" disabled>Release</button>
+      <button class="btn no" id="rv-no" disabled>Do not send</button>
+      <span class="rv-status" id="rv-status">Reviewer is opening the incident…</span>
+    </div>`;
+  $('rv-rel').onclick=()=>choiceRes&&choiceRes('release');
+  $('rv-no').onclick=()=>choiceRes&&choiceRes('block');
+}
+function waitChoice(){
+  rv.classList.add('waiting'); $('rv-rel').disabled=false; $('rv-no').disabled=false;
+  $('rv-status').textContent='Waiting for your decision: Release or Do not send';
+  return new Promise(r=>{choiceRes=v=>{choiceRes=null;r(v);};});
+}
+function rvDecided(choice){
+  rv.classList.remove('waiting'); $('rv-rel').disabled=true; $('rv-no').disabled=true;
+  $('rv-status').textContent=choice==='release'?'Released by reviewer':'Marked Do not send by reviewer';
+  $('rv-st').textContent=choice==='release'?'Released':'Not sent, removed from quarantine';
+}
+
+function place(el,p){el.setAttribute('transform',`translate(${p[0]} ${p[1]})`);}
+const SLOW=1.8;
+function frame(cb,tok,dur){dur*=SLOW;return new Promise(res=>{
+  if(reduce||dur<=0){cb(1);setTimeout(res,reduce?Math.min(dur,500):0);return;}
+  let el=0,last=null;
+  function f(t){ if(tok!==token)return res(); if(last===null)last=t; if(!paused)el+=t-last; last=t;
+    const k=Math.min(1,el/dur); cb(k); k<1?requestAnimationFrame(f):res(); }
+  requestAnimationFrame(f);});}
+const ease=k=>k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+async function along(el,path,dur,tok){
+  for(let i=1;i<path.length;i++){const a=P[path[i-1]],b=P[path[i]];
+    await frame(k=>{const e=ease(k);place(el,[a[0]+(b[0]-a[0])*e,a[1]+(b[1]-a[1])*e]);},tok,dur/(path.length-1));
+    if(tok!==token)return;}
+}
+const move=(path,dur,tok)=>along(env,path,dur,tok);
+async function packet(path,color,dur,tok){
+  const g=document.createElementNS(NS,'g');
+  const c=document.createElementNS(NS,'circle'); c.setAttribute('r',7); c.setAttribute('class','pk'); c.style.fill=`var(${color})`;
+  g.appendChild(c); pk.appendChild(g); place(g,P[path[0]]);
+  await along(g,path,dur,tok); g.remove();
+}
+const wait=(ms,tok)=>frame(()=>{},tok,ms);
+
+function activate(...ids){
+  document.querySelectorAll('.node').forEach(n=>n.classList.toggle('on',ids.includes(n.id.slice(2))));
+  const p=P[ids[0]]; if(!p||reduce||!ring.animate)return;
+  ring.setAttribute('cx',p[0]);ring.setAttribute('cy',p[1]);
+  ring.animate([{r:20,opacity:.7},{r:70,opacity:0}],{duration:900,easing:'ease-out'});
+}
+let n=0,total=10;
+function say(ms,html){
+  clock+=ms; const li=document.createElement('li');
+  li.innerHTML=`<time>T+${(clock/1000).toFixed(2)}s</time><span>${html}</span>`;
+  const e=log.querySelector('.empty'); if(e)e.closest('li').remove();
+  log.appendChild(li); log.scrollTop=log.scrollHeight;
+  prog.style.width=Math.min(100,(++n/total)*100)+'%';
+}
+function drawHeaders(){hdrs.innerHTML=headers.map(([k,v,c])=>`<dt>${k}</dt><dd class="${c||''}">${v}</dd>`).join('');}
+function setHeader(k,v,c){const h=headers.find(x=>x[0]===k); if(h){h[1]=v;h[2]=c;} drawHeaders();}
+const outRect=()=>document.querySelector('#n-out rect');
+function setOut(lbl,sub,c){$('out-lbl').textContent=lbl;$('out-sub').textContent=sub;outRect().style.stroke=c?`var(${c})`:'';}
+
+function reset(mid){
+  const s=SC[sc]; clock=0; n=0; total=s.total; prog.style.width='0';
+  log.innerHTML='<li><span class="empty">Waiting for the message to leave Outlook.</span></li>';
+  headers=[['From',s.from],['To',s.to],['Subject',s.subject],['Attachment',s.att],['Message-ID',`&lt;${mid}@citco.example&gt;`],
+    ['X-Watsonx-Classification','pending','pending']];
+  drawHeaders(); place(env,P.sender); env.style.removeProperty('--env'); $('env-tag').setAttribute('opacity',0);
+  $('wxo-score').textContent='risk —'; $('enf-sub').textContent='incidents'; $('q-sub').textContent='held mail'; $('db-sub').textContent='watsonx.data'; $('rev-sub').textContent='uses console';
+  setOut('Recipient','external'); pk.innerHTML='';
+  if(choiceRes)choiceRes(null); rvEmpty('Waiting for an incident.');
+  clearHL(); renderDB(); renderEnf(); activate('sender');
+}
+
+async function run(){
+  const tok=++token; paused=false; $('pause').textContent='Pause';
+  const s=SC[sc], mid=Math.random().toString(16).slice(2,10); reset(mid);
+  const st=async p=>{ if(tok!==token)throw 0; await p; if(tok!==token)throw 0; };
+  const dom=s.to.split('@')[1];
+  try{
+    await st(wait(600,tok));
+    say(0,`<b>Sent</b> from Outlook: “${s.subject}”`);
+    await st(move(['sender','exch'],1000,tok)); activate('exch');
+    say(38,'<b>Exchange</b> categorizer raises OnRoutedMessage; the transport agent picks the message up');
+    await st(move(['exch','smart'],900,tok)); activate('smart');
+    say(22,'<b>Transport agent</b> defers the message in the queue and posts the MIME to Orchestrate');
+    await st(move(['smart','wxo'],900,tok)); activate('wxo');
+
+    let row;
+    const MAXTRY=3;
+    if(sc==='np'){
+      for(let a=1;a<=MAXTRY;a++){
+        if(a>1){
+          say(120000,`<b>Retry ${a} of ${MAXTRY}</b>: the message reaches the front of the queue and goes to Orchestrate again`);
+          await st(move(['exch','smart','wxo'],1200,tok)); activate('wxo','db');
+          say(20,`<b>Transport agent</b> first checks the analysis DB for a late result on &lt;${mid}&gt;. None found`);
+        }else{
+          say(410,`<b>Orchestrate</b> starts reading ${s.att}`);
+        }
+        await st(frame(k=>{$('wxo-score').textContent=`attempt ${a}/${MAXTRY} `+'.'.repeat(1+Math.floor(k*6)%3);},tok,1300));
+        $('wxo-score').textContent=`timeout · attempt ${a}/${MAXTRY}`;
+        say(29590,`<b>Timeout</b> on attempt ${a}: no verdict within 30 s`);
+        if(a===1){row={id:mid,v:'RETRYING',risk:'—',reason:`attempt 1/${MAXTRY}`,inc:'pending',cls:'new'};dbRows.unshift(row);}
+        else{row.v='RETRYING';row.reason=`attempt ${a}/${MAXTRY}`;}
+        activate('wxo','db'); await st(packet(['wxo','db'],'--np',600,tok)); renderDB(); $('db-sub').textContent=`attempt ${a}/${MAXTRY} logged`;
+        if(a<MAXTRY){
+          await st(move(['wxo','smart','exch'],1100,tok)); activate('exch');
+          say(5,'<b>Transport agent</b> defers the message for 2 min. It drops to the back of the queue instead of holding it up');
+          await st(Promise.all([packet(['sender','exch','smart','smg'],'--ok',1500,tok),wait(450,tok).then(()=>packet(['sender','exch','smart','smg'],'--ok',1500,tok))]));
+          say(0,'Newer emails keep flowing while this one waits its turn');
+        }
+      }
+      row.v='TIMEOUT'; row.reason=`no verdict after ${MAXTRY} tries`; renderDB(); $('db-sub').textContent='marked TIMEOUT';
+      say(10,`<b>Give up</b> after ${MAXTRY} attempts. Analysis DB row set to TIMEOUT`);
+    }else{
+      say(410,`<b>Orchestrate</b> reads the body and ${s.att}`);
+      await st(frame(k=>{$('wxo-score').textContent='risk '+(s.risk*ease(k)).toFixed(2);},tok,1400));
+      say(1320,`<b>PII agent</b> scores ${s.risk.toFixed(2)}: ${s.why}`);
+      row={id:mid,v:s.cls,risk:s.risk.toFixed(2),reason:s.why.split(';')[0],inc:'pending',cls:'new'};
+      activate('wxo','db');
+      await st(packet(['wxo','db'],'--wxo',700,tok));
+      dbRows.unshift(row); renderDB(); $('db-sub').textContent='1 row inserted';
+      say(14,`<b>Analysis DB</b> (watsonx.data): row inserted for &lt;${mid}&gt; with verdict ${s.cls}`);
+    }
+
+    await st(move(['wxo','smart'],900,tok)); activate('smart');
+    env.style.setProperty('--env',`var(${s.c})`); $('env-tag').setAttribute('opacity',1);
+    setHeader('X-Watsonx-Classification',chip(s.cls,s.c),'new');
+    say(6,sc==='np'?'<b>Transport agent</b> stamps X-Watsonx-Classification: TIMEOUT and lets the message flow on'
+                   :`<b>Transport agent</b> stamps X-Watsonx-Classification: ${s.cls} and resumes the message`);
+    await st(wait(400,tok));
+    await st(move(['smart','smg'],900,tok)); activate('smg');
+    say(54,'<b>Exchange</b> send connector relays to SMG. <b>SMG</b> applies gateway rules and relays to Network Prevent for Email');
+    await st(move(['smg','npe'],800,tok)); activate('npe');
+    say(120,'<b>NPE</b> evaluates the policy on the header and the content');
+    await st(wait(500,tok));
+
+    const riskTxt=s.risk==null?'no score':s.risk.toFixed(2);
+    if(sc==='safe'){
+      say(4,'No policy match. The message is released');
+      await st(move(['npe','out'],1000,tok)); activate('out');
+      setOut('Delivered',dom,'--ok');
+      say(210,`<b>Delivered</b> to ${s.to}`);
+      row.inc='none'; row.cls='hl'; renderDB();
+      say(0,'No Enforce incident. DB row is closed with incident = none');
+      rvEmpty('No incident was opened for this message, so there is nothing to review.');
+    }else{
+      const inc='#'+(++incNo), pol=s.pol;
+      say(4,sc==='quar'?'<b>Quarantine</b> rule fires on QUARANTINE + free-mail domain'
+           :sc==='review'?'<b>Hold</b> rule fires on REVIEW: hold for a human decision'
+           :'<b>Mandatory review</b> rule fires on X-Watsonx-Classification: TIMEOUT');
+      activate('npe','smg','q','enf');
+      await st(Promise.all([move(['npe','smg','q'],1300,tok),packet(['npe','J','K','enf'],'--accent',1200,tok)]));
+      $('q-sub').textContent='held · '+inc; $('enf-sub').textContent=inc+' opened';
+      enfRows.unshift({inc,id:mid,pol,ai:'… pending lookup',st:'Held',cls:'new'}); renderEnf();
+      say(90,`<b>NPE</b> adds the Email Quarantine Connect headers and hands the message back. <b>SMG</b> holds it in quarantine, and Enforce opens incident ${inc}`);
+      await st(wait(500,tok));
+      activate('enf','db');
+      await st(packet(['enf','db'],'--wxo',700,tok));
+      say(35,`<b>Lookup</b>: SELECT verdict, risk FROM citco_analysis WHERE message_id = '&lt;${mid}&gt;'`);
+      await st(packet(['db','enf'],'--wxo',700,tok));
+      const e=enfRows[0]; e.ai=`${s.cls} · ${riskTxt}`; e.cls='hl'; row.inc=inc; row.cls='hl';
+      renderEnf(); renderDB(); $('enf-sub').textContent=inc+' matched';
+      say(48,`<b>Matched</b> on Message-ID. AI verdict and summary written to ${inc} via the Enforce REST API`);
+      setOut('Held','SMG quarantine',s.c);
+      activate('rev','enf'); $('rev-sub').textContent='opening '+inc;
+      await st(packet(['rev','enf'],'--warn',700,tok));
+      rvShow(s,inc,mid);
+      say(60000,sc==='np'?`<b>Reviewer</b> opens ${inc}. There is no AI summary, so they check the message and attachment directly`
+                         :`<b>Reviewer</b> opens ${inc} in the Enforce console: AI summary, entities, attachment summary and recommendation`);
+      await st(wait(600,tok));
+      say(0,'Waiting for the reviewer: choose <b>Release</b> or <b>Do not send</b> in the Reviewer view');
+      $('rev-sub').textContent='deciding';
+      const choice=await waitChoice(); if(tok!==token||!choice)return;
+      rvDecided(choice);
+      const ok=choice==='release';
+      e.st=ok?'Released':'Not sent'; renderEnf(); $('rev-sub').textContent=ok?'released':'not sent';
+      say(180000,`<b>Reviewer</b> clicks ${ok?'Quarantine – Approve':'Quarantine – Reject'} on ${inc}`);
+      activate('enf','q');
+      await st(packet(['enf','E0','E1','E2','q'],ok?'--ok':'--bad',1400,tok));
+      if(ok){
+        say(30,'<b>Enforce</b> sends Approve to SMG through Quarantine Connect. SMG releases the message');
+        env.style.setProperty('--env','var(--ok)');
+        await st(move(['q','qr','out'],1100,tok)); activate('out');
+        setOut('Released',dom,'--ok');
+        say(180,`<b>Delivered</b> to ${s.to}`);
+      }else{
+        env.style.setProperty('--env','var(--bad)'); $('q-sub').textContent='deleted · '+inc;
+        setOut('Not sent','rejected by reviewer','--bad');
+        say(30,'<b>Enforce</b> sends Reject to SMG through Quarantine Connect. SMG deletes the message and the sender gets a policy notice');
+      }
+      const agreed=(s.cls==='QUARANTINE')===(choice==='block');
+      const label=(ok?'released':'not sent')+(s.cls==='QUARANTINE'?(agreed?' · agreed':' · override'):'');
+      activate('enf','db');
+      await st(packet(['enf','db'],ok?'--ok':'--bad',900,tok));
+      fbCount++; row.fb=label; row.cls='hl'; renderDB(); $('db-sub').textContent=fbCount+' labels';
+      say(40,`<b>Feedback</b>: the reviewer decision on ${inc} is written to the analysis DB by Message-ID, next to the original verdict: ${label}`);
+      await st(wait(300,tok));
+      activate('db','wxo');
+      await st(packet(['db','fa','fb','wxo'],'--wxo',1200,tok));
+      $('wxo-score').textContent=fbCount+' labeled cases';
+      say(0,`<b>Learning</b>: Orchestrate reads the labeled decisions from the analysis DB (${fbCount} so far) to recalibrate thresholds and examples on a schedule, with sign-off before changes go live`);
+    }
+    prog.style.width='100%';
+  }catch(err){}
+}
+
+document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
+  sc=b.dataset.sc; document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  run();
+}));
+$('replay').addEventListener('click',run);
+$('pause').addEventListener('click',()=>{paused=!paused;$('pause').textContent=paused?'Resume':'Pause';});
+run();
+})();
+</script>
+
+</body></html>
